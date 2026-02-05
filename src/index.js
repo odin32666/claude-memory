@@ -12,6 +12,7 @@ const MemoryManager = require('./memory-manager');
 const SearchEngine = require('./search');
 const ConversationTracker = require('./conversation');
 const Extractor = require('./extractor');
+const SyncManager = require('./sync');
 const { ENTRY_TYPES, SCOPES } = require('./utils/schemas');
 
 /**
@@ -208,6 +209,7 @@ module.exports = {
   SearchEngine,
   ConversationTracker,
   Extractor,
+  SyncManager,
   ENTRY_TYPES,
   SCOPES
 };

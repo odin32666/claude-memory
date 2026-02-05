@@ -2,6 +2,7 @@
 
 const MemoryManager = require('./memory-manager');
 const SearchEngine = require('./search');
+const SyncManager = require('./sync');
 const { ENTRY_TYPES, SCOPES } = require('./utils/schemas');
 const readline = require('readline');
 
@@ -381,6 +382,130 @@ function cmdInit() {
   console.log(`  Project: ~/.claude/memory/projects/<hash>/`);
 }
 
+// ============ Sync Commands ============
+
+async function cmdSync(args) {
+  const savedConfig = SyncManager.loadConfig();
+  const backendArg = args.find(a => a.startsWith('--backend='));
+  const gistIdArg = args.find(a => a.startsWith('--gist-id='));
+  const apiUrlArg = args.find(a => a.startsWith('--api-url='));
+
+  const config = {
+    backend: backendArg?.split('=')[1] || savedConfig.backend || 'gist',
+    gistId: gistIdArg?.split('=')[1] || savedConfig.gistId,
+    apiUrl: apiUrlArg?.split('=')[1] || savedConfig.apiUrl
+  };
+
+  const sync = new SyncManager(config);
+
+  console.log(colorize('\n=== Syncing Memory ===\n', 'bright'));
+  console.log(`Backend: ${config.backend}`);
+  if (config.gistId) console.log(`Gist ID: ${config.gistId}`);
+
+  try {
+    const result = await sync.sync();
+    console.log(colorize(`\n✓ ${result.message}`, 'green'));
+    if (result.gistId) {
+      console.log(`  Gist ID: ${result.gistId}`);
+    }
+    if (result.url) {
+      console.log(`  URL: ${result.url}`);
+    }
+  } catch (error) {
+    console.log(colorize(`\n✗ Sync failed: ${error.message}`, 'red'));
+    if (error.message.includes('GITHUB_TOKEN')) {
+      console.log(colorize('\nTo set up GitHub Gist sync:', 'yellow'));
+      console.log('  1. Create a personal access token at https://github.com/settings/tokens');
+      console.log('  2. Grant "gist" scope');
+      console.log('  3. Run: export GITHUB_TOKEN=your_token');
+    }
+  }
+}
+
+async function cmdPush(args) {
+  const savedConfig = SyncManager.loadConfig();
+  const backendArg = args.find(a => a.startsWith('--backend='));
+  const gistIdArg = args.find(a => a.startsWith('--gist-id='));
+
+  const config = {
+    backend: backendArg?.split('=')[1] || savedConfig.backend || 'gist',
+    gistId: gistIdArg?.split('=')[1] || savedConfig.gistId
+  };
+
+  const sync = new SyncManager(config);
+
+  console.log(colorize('\n=== Pushing Memory to Remote ===\n', 'bright'));
+
+  try {
+    const result = await sync.push();
+    console.log(colorize(`\n✓ ${result.message}`, 'green'));
+    if (result.gistId) {
+      console.log(`  Gist ID: ${result.gistId}`);
+      console.log(colorize(`  Save this ID to pull from other devices!`, 'yellow'));
+    }
+    if (result.url) {
+      console.log(`  URL: ${result.url}`);
+    }
+  } catch (error) {
+    console.log(colorize(`\n✗ Push failed: ${error.message}`, 'red'));
+  }
+}
+
+async function cmdPull(args) {
+  const savedConfig = SyncManager.loadConfig();
+  const backendArg = args.find(a => a.startsWith('--backend='));
+  const gistIdArg = args.find(a => a.startsWith('--gist-id='));
+  const noMerge = args.includes('--no-merge');
+
+  const config = {
+    backend: backendArg?.split('=')[1] || savedConfig.backend || 'gist',
+    gistId: gistIdArg?.split('=')[1] || savedConfig.gistId
+  };
+
+  if (config.backend === 'gist' && !config.gistId) {
+    console.log(colorize('\n✗ No gist ID configured.', 'red'));
+    console.log('Run push first, or specify: --gist-id=YOUR_GIST_ID');
+    return;
+  }
+
+  const sync = new SyncManager(config);
+
+  console.log(colorize('\n=== Pulling Memory from Remote ===\n', 'bright'));
+
+  try {
+    const result = await sync.pull(!noMerge);
+    console.log(colorize(`\n✓ ${result.message}`, 'green'));
+  } catch (error) {
+    console.log(colorize(`\n✗ Pull failed: ${error.message}`, 'red'));
+  }
+}
+
+function cmdSyncStatus() {
+  const savedConfig = SyncManager.loadConfig();
+  const sync = new SyncManager(savedConfig);
+  const status = sync.status();
+
+  console.log(colorize('\n=== Sync Status ===\n', 'bright'));
+  console.log(`${colorize('Backend:', 'cyan')} ${status.backend}`);
+  console.log(`${colorize('Device ID:', 'cyan')} ${status.deviceId}`);
+  console.log(`${colorize('Configured:', 'cyan')} ${status.configured ? 'Yes' : 'No'}`);
+
+  if (status.gistId) {
+    console.log(`${colorize('Gist ID:', 'cyan')} ${status.gistId}`);
+  }
+
+  console.log('');
+  console.log(`${colorize('Last sync:', 'dim')} ${status.lastSync || 'Never'}`);
+  console.log(`${colorize('Last push:', 'dim')} ${status.lastPush || 'Never'}`);
+  console.log(`${colorize('Last pull:', 'dim')} ${status.lastPull || 'Never'}`);
+
+  if (!status.configured) {
+    console.log(colorize('\nTo configure sync:', 'yellow'));
+    console.log('  export GITHUB_TOKEN=your_token');
+    console.log('  cmem push');
+  }
+}
+
 function cmdHelp() {
   console.log(`
 ${colorize('Claude Memory - Persistent Knowledge Base', 'bright')}
@@ -396,6 +521,10 @@ ${colorize('Commands:', 'cyan')}
   stats       Show memory statistics
   delete      Delete an entry by ID
   init        Initialize memory structure
+  sync        Full sync (pull, merge, push) with remote
+  push        Push local memory to remote
+  pull        Pull remote memory to local
+  sync-status Show sync configuration and status
   help        Show this help message
 
 ${colorize('Add command options:', 'cyan')}
@@ -413,12 +542,25 @@ ${colorize('Search command options:', 'cyan')}
   --limit=N                     Max results (default: 20)
   -v, --verbose                 Show full content
 
+${colorize('Sync command options:', 'cyan')}
+  --backend=gist|api|file     Sync backend (default: gist)
+  --gist-id=ID                GitHub Gist ID for sync
+  --api-url=URL               API endpoint for sync
+  --no-merge                  Replace local with remote (pull only)
+
 ${colorize('Examples:', 'cyan')}
   claude-memory add -i
   claude-memory add --type=decision --title="Use React Query" --content="..."
   claude-memory search "authentication" --scope=global
   claude-memory recent --limit=5
   claude-memory export --format=md > knowledge.md
+
+${colorize('Sync examples:', 'cyan')}
+  export GITHUB_TOKEN=ghp_xxxxx    # Set your GitHub token first
+  claude-memory push               # Push to create a new gist
+  claude-memory pull --gist-id=abc123  # Pull from gist on another device
+  claude-memory sync               # Full bidirectional sync
+  claude-memory sync-status        # Check sync configuration
 `);
 }
 
@@ -453,6 +595,18 @@ async function main() {
       break;
     case 'init':
       cmdInit();
+      break;
+    case 'sync':
+      await cmdSync(commandArgs);
+      break;
+    case 'push':
+      await cmdPush(commandArgs);
+      break;
+    case 'pull':
+      await cmdPull(commandArgs);
+      break;
+    case 'sync-status':
+      cmdSyncStatus();
       break;
     case 'help':
     case '--help':
