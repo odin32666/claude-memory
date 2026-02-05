@@ -1,0 +1,17 @@
+{
+  "name": "claude-memory",
+  "version": "1.0.0",
+  "description": "Persistent knowledge base and memory system for Claude Code",
+  "main": "src/index.js",
+  "bin": {
+    "claude-memory": "./src/cli.js"
+  },
+  "scripts": {
+    "start": "node src/cli.js",
+    "test": "node test/test.js"
+  },
+  "keywords": ["claude", "memory", "knowledge-base", "ai"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {}
+}
