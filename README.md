@@ -144,10 +144,27 @@ cmem sync auto off
 cmem sync device "Work-Laptop"
 ```
 
+### Phone / Claude.ai App (No Terminal)
+
+If your phone only has the Claude.ai app (no terminal), you can still access all memories:
+
+1. **On your computer**, run `cmem sync` — this pushes a `CONTEXT.md` file to your sync repo
+2. **On your phone**, open your GitHub repo and view `CONTEXT.md`
+3. **Copy-paste** the contents into your Claude.ai conversation
+
+The `CONTEXT.md` file is auto-generated on every sync with all your memories formatted as clean, readable markdown.
+
+You can also generate a briefing locally anytime:
+```bash
+cmem briefing              # Print all memories as pasteable markdown
+cmem briefing | pbcopy     # Copy directly to clipboard (macOS)
+```
+
 ### How It Works
 
 - Your `~/.claude/memory/` directory becomes a git repo
 - Each device pushes/pulls to the same remote
+- A `CONTEXT.md` file is auto-generated on every push for phone/web access
 - Merge conflicts in JSON files are auto-resolved (entries are deduplicated by ID)
 - Auto-sync mode pushes after every `cmem add` (with 30-second debounce)
 - Network failures retry with exponential backoff (2s, 4s, 8s, 16s)

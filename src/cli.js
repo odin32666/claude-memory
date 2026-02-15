@@ -382,6 +382,47 @@ function cmdInit() {
   console.log(`  Project: ~/.claude/memory/projects/<hash>/`);
 }
 
+function cmdBriefing() {
+  const sync = new SyncManager();
+  const entries = sync._getAllEntries();
+
+  if (entries.length === 0) {
+    console.log(colorize('No memories stored yet. Use "cmem add" to create entries.', 'yellow'));
+    return;
+  }
+
+  // Output clean markdown (no ANSI colors) so it can be copy-pasted
+  let md = `# Claude Memory Briefing\n\n`;
+  md += `> ${entries.length} memories. Paste this into any Claude conversation.\n\n---\n\n`;
+
+  const byType = {};
+  for (const entry of entries) {
+    const type = entry.type || 'other';
+    if (!byType[type]) byType[type] = [];
+    byType[type].push(entry);
+  }
+
+  const typeOrder = [
+    ['decision', 'Decisions'], ['learning', 'Learnings'], ['solution', 'Solutions'],
+    ['error', 'Errors'], ['pattern', 'Patterns'], ['context', 'Context']
+  ];
+
+  for (const [type, label] of typeOrder) {
+    const items = byType[type];
+    if (!items || items.length === 0) continue;
+    items.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+    md += `## ${label}\n\n`;
+    for (const entry of items) {
+      const date = new Date(entry.timestamp).toLocaleDateString();
+      const tags = entry.tags && entry.tags.length > 0 ? ` [${entry.tags.join(', ')}]` : '';
+      md += `**${entry.title}** (${date}${tags})\n${entry.content}\n\n`;
+    }
+  }
+
+  console.log(md);
+}
+
 function cmdSync(args) {
   const subcommand = args[0];
   const sync = new SyncManager();
@@ -544,6 +585,7 @@ ${colorize('Commands:', 'cyan')}
   delete      Delete an entry by ID
   init        Initialize memory structure
   sync        Sync memories across devices via git
+  briefing    Print all memories as markdown (for copy-paste to Claude.ai)
   help        Show this help message
 
 ${colorize('Add command options:', 'cyan')}
@@ -615,6 +657,9 @@ async function main() {
       break;
     case 'sync':
       cmdSync(commandArgs);
+      break;
+    case 'briefing':
+      cmdBriefing();
       break;
     case 'help':
     case '--help':

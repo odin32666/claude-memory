@@ -1,7 +1,7 @@
 const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const { MEMORY_DIR, CLAUDE_HOME, readJson, writeJsonAtomic, ensureDir } = require('./utils/storage');
+const { MEMORY_DIR, CLAUDE_HOME, GLOBAL_DIR, PROJECTS_DIR, readJson, writeJsonAtomic, ensureDir } = require('./utils/storage');
 
 const SYNC_CONFIG_PATH = path.join(CLAUDE_HOME, 'sync.json');
 
@@ -136,6 +136,9 @@ class SyncManager {
     }
 
     const branch = this.config.branch;
+
+    // Regenerate CONTEXT.md before pushing so phone/web users see fresh data
+    this._generateContextFile();
 
     // Stage all changes
     this._git('add -A');
@@ -299,6 +302,133 @@ class SyncManager {
     }
 
     return this.sync();
+  }
+
+  /**
+   * Generate CONTEXT.md — a portable, human-readable file containing all memories.
+   * This lives in the sync repo so phone/web users can open it on GitHub
+   * and paste it into a Claude.ai conversation.
+   */
+  _generateContextFile() {
+    const entries = this._getAllEntries();
+    const now = new Date().toISOString();
+
+    let md = `# Claude Memory — Full Context\n\n`;
+    md += `> Auto-generated on ${new Date(now).toLocaleString()}. `;
+    md += `Paste this into any Claude conversation to give it your full knowledge base.\n\n`;
+
+    if (entries.length === 0) {
+      md += `*No memories stored yet.*\n`;
+      fs.writeFileSync(path.join(MEMORY_DIR, 'CONTEXT.md'), md, 'utf-8');
+      return;
+    }
+
+    md += `**${entries.length} memories** across all devices and projects.\n\n`;
+    md += `---\n\n`;
+
+    // Group by type
+    const byType = {};
+    for (const entry of entries) {
+      const type = entry.type || 'other';
+      if (!byType[type]) byType[type] = [];
+      byType[type].push(entry);
+    }
+
+    // Type display order and labels
+    const typeOrder = [
+      ['decision', 'Decisions'],
+      ['learning', 'Learnings'],
+      ['solution', 'Solutions'],
+      ['error', 'Errors'],
+      ['pattern', 'Patterns'],
+      ['context', 'Context'],
+      ['conversation', 'Conversations']
+    ];
+
+    for (const [type, label] of typeOrder) {
+      const items = byType[type];
+      if (!items || items.length === 0) continue;
+
+      md += `## ${label} (${items.length})\n\n`;
+
+      // Sort newest first
+      items.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+      for (const entry of items) {
+        const date = new Date(entry.timestamp).toLocaleDateString();
+        const tags = entry.tags && entry.tags.length > 0
+          ? ` — ${entry.tags.map(t => `\`${t}\``).join(', ')}`
+          : '';
+
+        md += `### ${entry.title}\n`;
+        md += `*${date}${tags}*\n\n`;
+        md += `${entry.content}\n\n`;
+      }
+    }
+
+    // Handle any types not in the display order
+    for (const [type, items] of Object.entries(byType)) {
+      if (typeOrder.some(([t]) => t === type)) continue;
+      if (items.length === 0) continue;
+
+      md += `## ${type.charAt(0).toUpperCase() + type.slice(1)} (${items.length})\n\n`;
+      items.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+      for (const entry of items) {
+        const date = new Date(entry.timestamp).toLocaleDateString();
+        md += `### ${entry.title}\n`;
+        md += `*${date}*\n\n`;
+        md += `${entry.content}\n\n`;
+      }
+    }
+
+    fs.writeFileSync(path.join(MEMORY_DIR, 'CONTEXT.md'), md, 'utf-8');
+  }
+
+  /**
+   * Collect all entries from all scopes (global + all projects)
+   */
+  _getAllEntries() {
+    const entries = [];
+
+    // Collect from global
+    const globalDecisions = readJson(path.join(GLOBAL_DIR, 'decisions.json'));
+    const globalLearnings = readJson(path.join(GLOBAL_DIR, 'learnings.json'));
+    const globalContext = readJson(path.join(GLOBAL_DIR, 'context.json'));
+
+    if (Array.isArray(globalDecisions)) entries.push(...globalDecisions);
+    if (Array.isArray(globalLearnings)) entries.push(...globalLearnings);
+    if (globalContext && Array.isArray(globalContext.entries)) entries.push(...globalContext.entries);
+
+    // Collect from all projects
+    if (fs.existsSync(PROJECTS_DIR)) {
+      const projectDirs = fs.readdirSync(PROJECTS_DIR).filter(d => {
+        return fs.statSync(path.join(PROJECTS_DIR, d)).isDirectory();
+      });
+
+      for (const dir of projectDirs) {
+        const projectDir = path.join(PROJECTS_DIR, dir);
+
+        const decisions = readJson(path.join(projectDir, 'decisions.json'));
+        const learnings = readJson(path.join(projectDir, 'learnings.json'));
+        const context = readJson(path.join(projectDir, 'context.json'));
+
+        if (Array.isArray(decisions)) entries.push(...decisions);
+        if (Array.isArray(learnings)) entries.push(...learnings);
+        if (context && Array.isArray(context.entries)) entries.push(...context.entries);
+      }
+    }
+
+    // Deduplicate by ID (in case of overlap)
+    const seen = new Map();
+    for (const entry of entries) {
+      if (!entry || !entry.id) continue;
+      const existing = seen.get(entry.id);
+      if (!existing || new Date(entry.timestamp) > new Date(existing.timestamp)) {
+        seen.set(entry.id, entry);
+      }
+    }
+
+    return [...seen.values()].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
   }
 
   /**
