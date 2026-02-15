@@ -11,6 +11,7 @@ const {
   getCurrentProjectPath
 } = require('./utils/storage');
 const { ENTRY_TYPES, SCOPES, createEntry, validateEntry } = require('./utils/schemas');
+const SyncManager = require('./sync');
 
 class MemoryManager {
   constructor(projectPath = null) {
@@ -95,6 +96,14 @@ class MemoryManager {
 
     // Update index
     this._updateIndex(scope, entry);
+
+    // Auto-sync if enabled
+    try {
+      const sync = new SyncManager();
+      sync.autoSyncIfEnabled();
+    } catch (e) {
+      // Sync failure should not block adding entries
+    }
 
     return { success: true, entry };
   }

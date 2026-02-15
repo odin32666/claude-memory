@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Claude Memory (`cmem`) — a persistent knowledge base and memory system for Claude Code. Stores decisions, learnings, errors, solutions, and patterns as JSON files so context carries across sessions.
+Claude Memory (`cmem`) — a persistent knowledge base and memory system for Claude Code. Stores decisions, learnings, errors, solutions, and patterns as JSON files so context carries across sessions. Supports cross-device sync via git.
 
 ## Tech Stack
 
@@ -18,6 +18,7 @@ Claude Memory (`cmem`) — a persistent knowledge base and memory system for Cla
 - `src/search.js` — Search/filter logic
 - `src/extractor.js` — Auto-extracts insights from text
 - `src/conversation.js` — Conversation tracking
+- `src/sync.js` — Cross-device sync via git (push/pull/auto-sync)
 - `src/utils/storage.js` — File I/O and JSON persistence
 - `src/utils/schemas.js` — Entry type schemas and validation
 
@@ -30,7 +31,30 @@ node src/cli.js search <q>  # Search memories
 node src/cli.js recent      # Show recent entries
 node src/cli.js context     # Show project memory context
 node src/cli.js stats       # Show statistics
+node src/cli.js sync        # Sync memories across devices
 ```
+
+## Sync System
+
+The sync feature uses git as a transport layer to keep memories in sync across all devices.
+
+```bash
+# Setup (run on each device):
+cmem sync init https://github.com/YOU/my-claude-memory.git --device=MacBook
+cmem sync init https://github.com/YOU/my-claude-memory.git --device=iPad
+cmem sync init https://github.com/YOU/my-claude-memory.git --device=iPhone
+
+# Manual sync:
+cmem sync              # Full sync (pull + push)
+cmem sync push         # Push local changes only
+cmem sync pull         # Pull remote changes only
+cmem sync status       # Check sync state
+
+# Auto-sync triggers on every `cmem add` when enabled
+cmem sync auto on|off
+```
+
+Config stored at `~/.claude/sync.json`. Merge conflicts in JSON files are auto-resolved by deduplicating entries by ID.
 
 ## Running Tests
 
@@ -47,3 +71,4 @@ Memories are stored in `~/.claude/memory/` with `global/` and `projects/<hash>/`
 - No external dependencies — keep it zero-dep Node.js
 - Entry types: decision, learning, error, solution, pattern, context
 - All entries stored as JSON with timestamps, tags, and metadata
+- Sync uses git — all devices point to the same private remote repo

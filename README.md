@@ -10,6 +10,7 @@ Claude Code doesn't remember things between conversations. This tool fixes that 
 - **Searching your knowledge** - Find past solutions when you hit similar problems
 - **Project + Global memory** - Some things are project-specific, others apply everywhere
 - **Auto-extracting insights** - Automatically detects decisions and learnings from text
+- **Cross-device sync** - Keep your memories in sync across computer, tablet, and phone via git
 
 ## Quick Start
 
@@ -69,6 +70,9 @@ source ~/.bashrc
 | `cmem stats` | Show statistics |
 | `cmem export` | Export to JSON or Markdown |
 | `cmem delete <id>` | Delete an entry |
+| `cmem sync` | Sync memories across all devices |
+| `cmem sync init <url>` | Connect device to sync repo |
+| `cmem sync status` | Check sync status |
 | `cmem help` | Show help |
 
 ## Entry Types
@@ -96,6 +100,57 @@ Memories are stored as JSON files in `~/.claude/memory/`:
         ├── context.json
         └── conversations/
 ```
+
+## Cross-Device Sync
+
+Keep your memories in sync across all your devices (computer, tablet, phone) using a private git repository.
+
+### Setup
+
+1. Create a **private** repository on GitHub (e.g., `my-claude-memory`)
+2. Run `cmem sync init` on each device:
+
+```bash
+# On your computer
+cmem sync init https://github.com/YOU/my-claude-memory.git --device=MacBook
+
+# On your tablet
+cmem sync init https://github.com/YOU/my-claude-memory.git --device=iPad
+
+# On your phone
+cmem sync init https://github.com/YOU/my-claude-memory.git --device=iPhone
+```
+
+### Usage
+
+```bash
+# Full sync (pull remote + push local) — the default
+cmem sync
+
+# Push only your local changes
+cmem sync push
+
+# Pull only remote changes
+cmem sync pull
+
+# Check sync status
+cmem sync status
+
+# Enable/disable auto-sync (syncs on every cmem add)
+cmem sync auto on
+cmem sync auto off
+
+# Name your device
+cmem sync device "Work-Laptop"
+```
+
+### How It Works
+
+- Your `~/.claude/memory/` directory becomes a git repo
+- Each device pushes/pulls to the same remote
+- Merge conflicts in JSON files are auto-resolved (entries are deduplicated by ID)
+- Auto-sync mode pushes after every `cmem add` (with 30-second debounce)
+- Network failures retry with exponential backoff (2s, 4s, 8s, 16s)
 
 ## Programmatic API
 

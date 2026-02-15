@@ -2,6 +2,7 @@
 
 const MemoryManager = require('./memory-manager');
 const SearchEngine = require('./search');
+const SyncManager = require('./sync');
 const { ENTRY_TYPES, SCOPES } = require('./utils/schemas');
 const readline = require('readline');
 
@@ -381,6 +382,152 @@ function cmdInit() {
   console.log(`  Project: ~/.claude/memory/projects/<hash>/`);
 }
 
+function cmdSync(args) {
+  const subcommand = args[0];
+  const sync = new SyncManager();
+
+  switch (subcommand) {
+    case 'init': {
+      const repoUrl = args[1];
+      if (!repoUrl) {
+        console.log(colorize('Usage: cmem sync init <repo-url> [--device=name] [--no-auto]', 'yellow'));
+        console.log('');
+        console.log(colorize('Setup:', 'cyan'));
+        console.log('  1. Create a private repo on GitHub (e.g., "my-claude-memory")');
+        console.log('  2. Run: cmem sync init https://github.com/YOU/my-claude-memory.git');
+        console.log('  3. Repeat on each device (computer, tablet, phone)');
+        console.log('');
+        console.log('All devices will share the same memories via git.');
+        return;
+      }
+
+      const deviceArg = args.find(a => a.startsWith('--device='));
+      const deviceName = deviceArg ? deviceArg.split('=')[1] : undefined;
+      const noAuto = args.includes('--no-auto');
+
+      console.log(colorize('\nInitializing sync...', 'cyan'));
+      const result = sync.init(repoUrl, { deviceName, autoSync: !noAuto });
+
+      if (result.success) {
+        console.log(colorize('\n✓ Sync initialized!', 'green'));
+        console.log(`  ${colorize('Remote:', 'dim')} ${repoUrl}`);
+        console.log(`  ${colorize('Device:', 'dim')} ${result.deviceName}`);
+        console.log(`  ${colorize('Branch:', 'dim')} ${result.branch}`);
+        console.log(`  ${colorize('Auto-sync:', 'dim')} ${result.autoSync ? 'enabled' : 'disabled'}`);
+        console.log('');
+        console.log(colorize('Run this same command on your other devices to connect them.', 'dim'));
+      } else {
+        console.log(colorize(`\n✗ ${result.error}`, 'red'));
+      }
+      break;
+    }
+
+    case 'push': {
+      console.log(colorize('Pushing memories to remote...', 'cyan'));
+      const result = sync.push();
+      if (result.success) {
+        console.log(colorize(`✓ ${result.message}`, 'green'));
+      } else {
+        console.log(colorize(`✗ ${result.error}`, 'red'));
+      }
+      break;
+    }
+
+    case 'pull': {
+      console.log(colorize('Pulling memories from remote...', 'cyan'));
+      const result = sync.pull();
+      if (result.success) {
+        console.log(colorize(`✓ ${result.message}`, 'green'));
+      } else {
+        console.log(colorize(`✗ ${result.error}`, 'red'));
+      }
+      break;
+    }
+
+    case 'status': {
+      const status = sync.status();
+      console.log(colorize('\n=== Sync Status ===\n', 'bright'));
+
+      if (!status.enabled) {
+        console.log(colorize(status.message, 'yellow'));
+        return;
+      }
+
+      console.log(`  ${colorize('Enabled:', 'dim')} yes`);
+      console.log(`  ${colorize('Remote:', 'dim')} ${status.repoUrl}`);
+      console.log(`  ${colorize('Device:', 'dim')} ${status.deviceName}`);
+      console.log(`  ${colorize('Branch:', 'dim')} ${status.branch}`);
+      console.log(`  ${colorize('Auto-sync:', 'dim')} ${status.autoSync ? 'on' : 'off'}`);
+      console.log(`  ${colorize('Last sync:', 'dim')} ${status.lastSync || 'never'}`);
+      console.log(`  ${colorize('Pending changes:', 'dim')} ${status.pendingChanges}`);
+      break;
+    }
+
+    case 'auto': {
+      const onOff = args[1];
+      if (onOff !== 'on' && onOff !== 'off') {
+        console.log(colorize('Usage: cmem sync auto on|off', 'yellow'));
+        return;
+      }
+      const result = sync.setAutoSync(onOff === 'on');
+      console.log(colorize(`✓ Auto-sync ${result.autoSync ? 'enabled' : 'disabled'}`, 'green'));
+      break;
+    }
+
+    case 'device': {
+      const name = args[1];
+      if (!name) {
+        console.log(colorize('Usage: cmem sync device <name>', 'yellow'));
+        console.log('Examples: cmem sync device "MacBook-Pro", cmem sync device "iPad", cmem sync device "iPhone"');
+        return;
+      }
+      const result = sync.setDeviceName(name);
+      console.log(colorize(`✓ Device name set to: ${result.deviceName}`, 'green'));
+      break;
+    }
+
+    default: {
+      // No subcommand = full sync (pull + push)
+      if (!subcommand || subcommand.startsWith('--')) {
+        const status = sync.status();
+        if (!status.enabled) {
+          console.log(colorize(status.message, 'yellow'));
+          return;
+        }
+
+        console.log(colorize('Syncing memories...', 'cyan'));
+        const result = sync.sync();
+        if (result.success) {
+          console.log(colorize(`✓ ${result.message}`, 'green'));
+        } else {
+          console.log(colorize(`✗ ${result.error}`, 'red'));
+        }
+      } else {
+        console.log(colorize(`Unknown sync subcommand: ${subcommand}`, 'red'));
+        console.log('');
+        cmdSyncHelp();
+      }
+    }
+  }
+}
+
+function cmdSyncHelp() {
+  console.log(`${colorize('Sync Commands:', 'cyan')}
+  sync                         Full sync (pull + push)
+  sync init <repo-url>         Connect to a sync repo
+  sync push                    Push local memories to remote
+  sync pull                    Pull remote memories to local
+  sync status                  Show sync status
+  sync auto on|off             Enable/disable auto-sync
+  sync device <name>           Set this device's name
+
+${colorize('Setup (run on each device):', 'cyan')}
+  cmem sync init https://github.com/YOU/my-claude-memory.git --device=MacBook
+  cmem sync init https://github.com/YOU/my-claude-memory.git --device=iPad
+  cmem sync init https://github.com/YOU/my-claude-memory.git --device=iPhone
+`);
+}
+
 function cmdHelp() {
   console.log(`
 ${colorize('Claude Memory - Persistent Knowledge Base', 'bright')}
@@ -396,6 +543,7 @@ ${colorize('Commands:', 'cyan')}
   stats       Show memory statistics
   delete      Delete an entry by ID
   init        Initialize memory structure
+  sync        Sync memories across devices via git
   help        Show this help message
 
 ${colorize('Add command options:', 'cyan')}
@@ -413,12 +561,23 @@ ${colorize('Search command options:', 'cyan')}
   --limit=N                     Max results (default: 20)
   -v, --verbose                 Show full content
 
+${colorize('Sync commands:', 'cyan')}
+  sync                         Full sync (pull + push)
+  sync init <repo-url>         Connect to a sync repo
+  sync push                    Push local memories to remote
+  sync pull                    Pull remote memories to local
+  sync status                  Show sync status
+  sync auto on|off             Enable/disable auto-sync
+  sync device <name>           Set this device's name
+
 ${colorize('Examples:', 'cyan')}
   claude-memory add -i
   claude-memory add --type=decision --title="Use React Query" --content="..."
   claude-memory search "authentication" --scope=global
   claude-memory recent --limit=5
   claude-memory export --format=md > knowledge.md
+  claude-memory sync init https://github.com/you/memory.git --device=MacBook
+  claude-memory sync
 `);
 }
 
@@ -453,6 +612,9 @@ async function main() {
       break;
     case 'init':
       cmdInit();
+      break;
+    case 'sync':
+      cmdSync(commandArgs);
       break;
     case 'help':
     case '--help':
