@@ -1,4 +1,4 @@
-const { execSync } = require('child_process');
+const { execFileSync, spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { MEMORY_DIR, CLAUDE_HOME, GLOBAL_DIR, PROJECTS_DIR, readJson, writeJsonAtomic, ensureDir } = require('./utils/storage');
@@ -33,9 +33,16 @@ class SyncManager {
   }
 
   /**
-   * Run a git command in the memory directory
+   * Run a git command safely using execFileSync (prevents shell injection).
+   * All arguments are passed as an array — never interpolated into a shell string.
+   * @param {string[]} args - Array of git arguments
+   * @param {object} options - Options (silent: boolean)
    */
-  _git(command, options = {}) {
+  _git(args, options = {}) {
+    if (!Array.isArray(args)) {
+      throw new Error('_git requires an array of arguments');
+    }
+
     const opts = {
       cwd: MEMORY_DIR,
       encoding: 'utf-8',
@@ -44,13 +51,13 @@ class SyncManager {
     };
 
     try {
-      const result = execSync(`git ${command}`, opts);
+      const result = execFileSync('git', args, opts);
       return { success: true, output: (result || '').trim() };
     } catch (error) {
       return {
         success: false,
-        output: (error.stdout || '').trim(),
-        error: (error.stderr || error.message || '').trim()
+        output: ((error.stdout || '').toString()).trim(),
+        error: ((error.stderr || error.message || '').toString()).trim()
       };
     }
   }
@@ -65,27 +72,27 @@ class SyncManager {
     ensureDir(MEMORY_DIR);
 
     // Check if already a git repo
-    const isRepo = this._git('rev-parse --is-inside-work-tree', { silent: true });
+    const isRepo = this._git(['rev-parse', '--is-inside-work-tree'], { silent: true });
 
     if (isRepo.success) {
       // Already a repo — update remote
-      this._git('remote remove origin', { silent: true });
-      const addRemote = this._git(`remote add origin ${repoUrl}`);
+      this._git(['remote', 'remove', 'origin'], { silent: true });
+      const addRemote = this._git(['remote', 'add', 'origin', repoUrl]);
       if (!addRemote.success) {
         return { success: false, error: `Failed to set remote: ${addRemote.error}` };
       }
 
       // Try to pull existing content
-      this._git(`fetch origin ${branch}`, { silent: true });
-      const remoteBranch = this._git(`rev-parse --verify origin/${branch}`, { silent: true });
+      this._git(['fetch', 'origin', branch], { silent: true });
+      const remoteBranch = this._git(['rev-parse', '--verify', `origin/${branch}`], { silent: true });
       if (remoteBranch.success) {
         // Remote has content — merge it in
-        this._git(`merge origin/${branch} --allow-unrelated-histories -m "Sync: merge remote memories"`, { silent: true });
+        this._git(['merge', `origin/${branch}`, '--allow-unrelated-histories', '-m', 'Sync: merge remote memories'], { silent: true });
       }
     } else {
       // Fresh init
-      this._git('init');
-      this._git(`remote add origin ${repoUrl}`);
+      this._git(['init']);
+      this._git(['remote', 'add', 'origin', repoUrl]);
 
       // Create .gitignore for temp files
       const gitignorePath = path.join(MEMORY_DIR, '.gitignore');
@@ -94,16 +101,16 @@ class SyncManager {
       }
 
       // Try to pull existing content from remote
-      const fetch = this._git(`fetch origin ${branch}`, { silent: true });
+      const fetch = this._git(['fetch', 'origin', branch], { silent: true });
       if (fetch.success) {
-        const remoteBranch = this._git(`rev-parse --verify origin/${branch}`, { silent: true });
+        const remoteBranch = this._git(['rev-parse', '--verify', `origin/${branch}`], { silent: true });
         if (remoteBranch.success) {
-          this._git(`checkout -b ${branch} origin/${branch}`, { silent: true });
+          this._git(['checkout', '-b', branch, `origin/${branch}`], { silent: true });
         } else {
-          this._git(`checkout -b ${branch}`);
+          this._git(['checkout', '-b', branch]);
         }
       } else {
-        this._git(`checkout -b ${branch}`);
+        this._git(['checkout', '-b', branch]);
       }
     }
 
@@ -141,10 +148,10 @@ class SyncManager {
     this._generateContextFile();
 
     // Stage all changes
-    this._git('add -A');
+    this._git(['add', '-A']);
 
     // Check if there are changes to commit
-    const status = this._git('status --porcelain', { silent: true });
+    const status = this._git(['status', '--porcelain'], { silent: true });
     if (!status.output) {
       return { success: true, message: 'Already up to date — no local changes to push' };
     }
@@ -152,7 +159,7 @@ class SyncManager {
     // Commit with device name and timestamp
     const timestamp = new Date().toISOString();
     const commitMsg = `sync: ${this.config.deviceName} @ ${timestamp}`;
-    const commit = this._git(`commit -m "${commitMsg}"`);
+    const commit = this._git(['commit', '-m', commitMsg]);
     if (!commit.success) {
       return { success: false, error: `Failed to commit: ${commit.error}` };
     }
@@ -178,38 +185,36 @@ class SyncManager {
     const branch = this.config.branch;
 
     // Stash any local changes first
-    this._git('add -A', { silent: true });
-    const hasChanges = this._git('status --porcelain', { silent: true }).output;
+    this._git(['add', '-A'], { silent: true });
+    const hasChanges = this._git(['status', '--porcelain'], { silent: true }).output;
     if (hasChanges) {
-      this._git('stash', { silent: true });
+      this._git(['stash'], { silent: true });
     }
 
     // Fetch and merge with retry
     const fetchResult = this._fetchWithRetry(branch);
     if (!fetchResult.success) {
       // Restore stashed changes
-      if (hasChanges) this._git('stash pop', { silent: true });
+      if (hasChanges) this._git(['stash', 'pop'], { silent: true });
       return fetchResult;
     }
 
     // Merge remote changes
-    const merge = this._git(`merge origin/${branch} --no-edit`, { silent: true });
+    const merge = this._git(['merge', `origin/${branch}`, '--no-edit'], { silent: true });
 
     // If merge conflict, try to resolve by keeping both (ours + theirs for JSON arrays)
     if (!merge.success && merge.error && merge.error.includes('CONFLICT')) {
-      // For JSON files, resolve conflicts by merging the content
       const conflictResult = this._resolveJsonConflicts();
       if (!conflictResult.success) {
-        // If auto-resolve fails, abort and restore
-        this._git('merge --abort', { silent: true });
-        if (hasChanges) this._git('stash pop', { silent: true });
+        this._git(['merge', '--abort'], { silent: true });
+        if (hasChanges) this._git(['stash', 'pop'], { silent: true });
         return { success: false, error: 'Merge conflict could not be auto-resolved. Pull manually.' };
       }
     }
 
     // Restore stashed changes
     if (hasChanges) {
-      this._git('stash pop', { silent: true });
+      this._git(['stash', 'pop'], { silent: true });
     }
 
     this.config.lastSync = new Date().toISOString();
@@ -254,7 +259,7 @@ class SyncManager {
       };
     }
 
-    const localChanges = this._git('status --porcelain', { silent: true });
+    const localChanges = this._git(['status', '--porcelain'], { silent: true });
 
     return {
       enabled: true,
@@ -305,65 +310,58 @@ class SyncManager {
   }
 
   /**
-   * Generate CONTEXT.md — a portable, human-readable file containing all memories.
-   * This lives in the sync repo so phone/web users can open it on GitHub
+   * Generate CONTEXT.md — token-optimized, portable memory file.
+   * Lives in the sync repo so phone/web users can open it on GitHub
    * and paste it into a Claude.ai conversation.
    */
   _generateContextFile() {
     const entries = this._getAllEntries();
     const now = new Date().toISOString();
+    const MAX_ENTRIES = 50;
+    const MAX_CONTENT_LEN = 200;
 
-    let md = `# Claude Memory — Full Context\n\n`;
-    md += `> Auto-generated on ${new Date(now).toLocaleString()}. `;
-    md += `Paste this into any Claude conversation to give it your full knowledge base.\n\n`;
+    let md = `# Claude Memory Context\n\n`;
+    md += `> ${entries.length} memories | Updated ${new Date(now).toLocaleDateString()}\n`;
+    md += `> Paste into any Claude conversation for full context.\n\n`;
 
     if (entries.length === 0) {
-      md += `*No memories stored yet.*\n`;
+      md += `*No memories yet.*\n`;
       fs.writeFileSync(path.join(MEMORY_DIR, 'CONTEXT.md'), md, 'utf-8');
       return;
     }
 
-    md += `**${entries.length} memories** across all devices and projects.\n\n`;
-    md += `---\n\n`;
+    // Take most recent entries, capped for token efficiency
+    const capped = entries.slice(0, MAX_ENTRIES);
 
     // Group by type
     const byType = {};
-    for (const entry of entries) {
+    for (const entry of capped) {
       const type = entry.type || 'other';
       if (!byType[type]) byType[type] = [];
       byType[type].push(entry);
     }
 
-    // Type display order and labels
     const typeOrder = [
       ['decision', 'Decisions'],
       ['learning', 'Learnings'],
       ['solution', 'Solutions'],
       ['error', 'Errors'],
       ['pattern', 'Patterns'],
-      ['context', 'Context'],
-      ['conversation', 'Conversations']
+      ['context', 'Context']
     ];
 
     for (const [type, label] of typeOrder) {
       const items = byType[type];
       if (!items || items.length === 0) continue;
 
-      md += `## ${label} (${items.length})\n\n`;
-
-      // Sort newest first
-      items.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-
+      md += `## ${label}\n\n`;
       for (const entry of items) {
-        const date = new Date(entry.timestamp).toLocaleDateString();
-        const tags = entry.tags && entry.tags.length > 0
-          ? ` — ${entry.tags.map(t => `\`${t}\``).join(', ')}`
-          : '';
-
-        md += `### ${entry.title}\n`;
-        md += `*${date}${tags}*\n\n`;
-        md += `${entry.content}\n\n`;
+        const content = (entry.content || '').replace(/\n/g, ' ').slice(0, MAX_CONTENT_LEN);
+        const ellipsis = (entry.content || '').length > MAX_CONTENT_LEN ? '...' : '';
+        const tags = entry.tags && entry.tags.length > 0 ? ` [${entry.tags.join(',')}]` : '';
+        md += `- **${entry.title}**${tags}: ${content}${ellipsis}\n`;
       }
+      md += `\n`;
     }
 
     // Handle any types not in the display order
@@ -371,14 +369,17 @@ class SyncManager {
       if (typeOrder.some(([t]) => t === type)) continue;
       if (items.length === 0) continue;
 
-      md += `## ${type.charAt(0).toUpperCase() + type.slice(1)} (${items.length})\n\n`;
-      items.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+      md += `## ${type.charAt(0).toUpperCase() + type.slice(1)}\n\n`;
       for (const entry of items) {
-        const date = new Date(entry.timestamp).toLocaleDateString();
-        md += `### ${entry.title}\n`;
-        md += `*${date}*\n\n`;
-        md += `${entry.content}\n\n`;
+        const content = (entry.content || '').replace(/\n/g, ' ').slice(0, MAX_CONTENT_LEN);
+        const ellipsis = (entry.content || '').length > MAX_CONTENT_LEN ? '...' : '';
+        md += `- **${entry.title}**: ${content}${ellipsis}\n`;
       }
+      md += `\n`;
+    }
+
+    if (entries.length > MAX_ENTRIES) {
+      md += `\n*${entries.length - MAX_ENTRIES} older entries omitted. Run \`cmem briefing\` for full list.*\n`;
     }
 
     fs.writeFileSync(path.join(MEMORY_DIR, 'CONTEXT.md'), md, 'utf-8');
@@ -438,13 +439,12 @@ class SyncManager {
     const delays = [2000, 4000, 8000, 16000];
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      const result = this._git(`push -u origin ${branch}`, { silent: true });
+      const result = this._git(['push', '-u', 'origin', branch], { silent: true });
       if (result.success) {
         return { success: true, message: `Pushed memories to remote (attempt ${attempt + 1})` };
       }
 
       if (attempt < maxRetries) {
-        // Check if this is a network error (worth retrying)
         const isNetworkError = result.error && (
           result.error.includes('Could not resolve') ||
           result.error.includes('Connection refused') ||
@@ -458,7 +458,6 @@ class SyncManager {
           return { success: false, error: `Push failed: ${result.error}` };
         }
 
-        // Wait before retrying
         this._sleep(delays[attempt]);
       }
     }
@@ -473,7 +472,7 @@ class SyncManager {
     const delays = [2000, 4000, 8000, 16000];
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      const result = this._git(`fetch origin ${branch}`, { silent: true });
+      const result = this._git(['fetch', 'origin', branch], { silent: true });
       if (result.success) {
         return { success: true };
       }
@@ -503,7 +502,7 @@ class SyncManager {
    * Attempt to resolve JSON merge conflicts by combining entries
    */
   _resolveJsonConflicts() {
-    const status = this._git('diff --name-only --diff-filter=U', { silent: true });
+    const status = this._git(['diff', '--name-only', '--diff-filter=U'], { silent: true });
     if (!status.success || !status.output) {
       return { success: false };
     }
@@ -511,22 +510,24 @@ class SyncManager {
     const conflictedFiles = status.output.split('\n').filter(Boolean);
 
     for (const file of conflictedFiles) {
-      const filePath = path.join(MEMORY_DIR, file);
-
-      if (!file.endsWith('.json')) {
-        // Non-JSON conflicts: accept theirs
-        this._git(`checkout --theirs "${file}"`, { silent: true });
-        this._git(`add "${file}"`, { silent: true });
+      // Path traversal protection: ensure resolved path stays within MEMORY_DIR
+      const filePath = path.resolve(MEMORY_DIR, file);
+      if (!filePath.startsWith(path.resolve(MEMORY_DIR))) {
         continue;
       }
 
-      // For JSON files: try to get both versions and merge
-      const oursResult = this._git(`show :2:"${file}"`, { silent: true });
-      const theirsResult = this._git(`show :3:"${file}"`, { silent: true });
+      if (!file.endsWith('.json')) {
+        this._git(['checkout', '--theirs', file], { silent: true });
+        this._git(['add', file], { silent: true });
+        continue;
+      }
+
+      const oursResult = this._git(['show', `:2:${file}`], { silent: true });
+      const theirsResult = this._git(['show', `:3:${file}`], { silent: true });
 
       if (!oursResult.success || !theirsResult.success) {
-        this._git(`checkout --theirs "${file}"`, { silent: true });
-        this._git(`add "${file}"`, { silent: true });
+        this._git(['checkout', '--theirs', file], { silent: true });
+        this._git(['add', file], { silent: true });
         continue;
       }
 
@@ -536,16 +537,14 @@ class SyncManager {
         const merged = this._mergeJsonData(ours, theirs);
 
         fs.writeFileSync(filePath, JSON.stringify(merged, null, 2), 'utf-8');
-        this._git(`add "${file}"`, { silent: true });
+        this._git(['add', file], { silent: true });
       } catch (e) {
-        // JSON parse failed, accept theirs
-        this._git(`checkout --theirs "${file}"`, { silent: true });
-        this._git(`add "${file}"`, { silent: true });
+        this._git(['checkout', '--theirs', file], { silent: true });
+        this._git(['add', file], { silent: true });
       }
     }
 
-    // Complete the merge
-    const commit = this._git('commit --no-edit', { silent: true });
+    const commit = this._git(['commit', '--no-edit'], { silent: true });
     return { success: commit.success };
   }
 
@@ -553,21 +552,17 @@ class SyncManager {
    * Merge two JSON data structures (combine entries, deduplicate by ID)
    */
   _mergeJsonData(ours, theirs) {
-    // Both are arrays (decisions.json, learnings.json)
     if (Array.isArray(ours) && Array.isArray(theirs)) {
       return this._deduplicateById([...ours, ...theirs]);
     }
 
-    // Both are objects with entries arrays (context.json, index.json)
     if (ours && theirs && typeof ours === 'object' && typeof theirs === 'object') {
       const merged = { ...theirs, ...ours };
 
-      // Merge entries arrays
       if (Array.isArray(ours.entries) && Array.isArray(theirs.entries)) {
         merged.entries = this._deduplicateById([...ours.entries, ...theirs.entries]);
       }
 
-      // Merge index-style nested entries
       if (ours.entries && theirs.entries && !Array.isArray(ours.entries)) {
         merged.entries = { ...theirs.entries };
         for (const key of ['byType', 'byTag', 'byFile']) {
@@ -597,7 +592,6 @@ class SyncManager {
       return merged;
     }
 
-    // Fallback: prefer ours
     return ours;
   }
 
@@ -625,10 +619,10 @@ class SyncManager {
   }
 
   /**
-   * Synchronous sleep (for retry backoff)
+   * Synchronous sleep using spawnSync (safe — no shell interpolation)
    */
   _sleep(ms) {
-    execSync(`sleep ${ms / 1000}`, { stdio: 'ignore' });
+    spawnSync('sleep', [String(ms / 1000)], { stdio: 'ignore' });
   }
 }
 

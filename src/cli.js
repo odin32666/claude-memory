@@ -385,18 +385,22 @@ function cmdInit() {
 function cmdBriefing() {
   const sync = new SyncManager();
   const entries = sync._getAllEntries();
+  const MAX_ENTRIES = 50;
+  const MAX_CONTENT_LEN = 200;
 
   if (entries.length === 0) {
     console.log(colorize('No memories stored yet. Use "cmem add" to create entries.', 'yellow'));
     return;
   }
 
+  const capped = entries.slice(0, MAX_ENTRIES);
+
   // Output clean markdown (no ANSI colors) so it can be copy-pasted
   let md = `# Claude Memory Briefing\n\n`;
-  md += `> ${entries.length} memories. Paste this into any Claude conversation.\n\n---\n\n`;
+  md += `> ${entries.length} memories | Paste into any Claude conversation.\n\n---\n\n`;
 
   const byType = {};
-  for (const entry of entries) {
+  for (const entry of capped) {
     const type = entry.type || 'other';
     if (!byType[type]) byType[type] = [];
     byType[type].push(entry);
@@ -410,14 +414,19 @@ function cmdBriefing() {
   for (const [type, label] of typeOrder) {
     const items = byType[type];
     if (!items || items.length === 0) continue;
-    items.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
     md += `## ${label}\n\n`;
     for (const entry of items) {
-      const date = new Date(entry.timestamp).toLocaleDateString();
-      const tags = entry.tags && entry.tags.length > 0 ? ` [${entry.tags.join(', ')}]` : '';
-      md += `**${entry.title}** (${date}${tags})\n${entry.content}\n\n`;
+      const content = (entry.content || '').replace(/\n/g, ' ').slice(0, MAX_CONTENT_LEN);
+      const ellipsis = (entry.content || '').length > MAX_CONTENT_LEN ? '...' : '';
+      const tags = entry.tags && entry.tags.length > 0 ? ` [${entry.tags.join(',')}]` : '';
+      md += `- **${entry.title}**${tags}: ${content}${ellipsis}\n`;
     }
+    md += `\n`;
+  }
+
+  if (entries.length > MAX_ENTRIES) {
+    md += `\n*${entries.length - MAX_ENTRIES} older entries omitted.*\n`;
   }
 
   console.log(md);

@@ -36,7 +36,7 @@ class SearchEngine {
 
     // Filter by tags if specified
     if (tags && tags.length > 0) {
-      entries = entries.filter(e => e.tags.some(t => tags.includes(t)));
+      entries = entries.filter(e => (e.tags || []).some(t => tags.includes(t)));
     }
 
     // Score and rank entries
@@ -73,17 +73,18 @@ class SearchEngine {
   _calculateScore(entry, queryTerms) {
     let score = 0;
 
-    const titleLower = entry.title.toLowerCase();
-    const contentLower = entry.content.toLowerCase();
-    const tagsLower = entry.tags.map(t => t.toLowerCase());
+    const titleLower = (entry.title || '').toLowerCase();
+    const contentLower = (entry.content || '').toLowerCase();
+    const tagsLower = (entry.tags || []).map(t => t.toLowerCase());
     const searchTerms = entry.searchTerms || [];
 
     for (const term of queryTerms) {
       // Exact title match (highest weight)
       if (titleLower.includes(term)) {
         score += 10;
-        // Bonus for word boundary match
-        if (new RegExp(`\\b${term}\\b`).test(titleLower)) {
+        // Bonus for word boundary match (escape regex special chars)
+        const escapedTerm = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        if (new RegExp(`\\b${escapedTerm}\\b`).test(titleLower)) {
           score += 5;
         }
       }
@@ -107,7 +108,7 @@ class SearchEngine {
       }
 
       // Related files match
-      if (entry.relatedFiles.some(f => f.toLowerCase().includes(term))) {
+      if ((entry.relatedFiles || []).some(f => f.toLowerCase().includes(term))) {
         score += 5;
       }
     }
