@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node src/cli.js sync pull 2>/dev/null; node src/cli.js briefing 2>/dev/null | head -50"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node src/cli.js sync push 2>/dev/null"
+          }
+        ]
+      }
+    ]
+  }
+}

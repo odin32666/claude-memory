@@ -66,6 +66,22 @@ npm test    # runs node test/test.js
 
 Memories are stored in `~/.claude/memory/` with `global/` and `projects/<hash>/` subdirectories.
 
+## Auto-Memory Rules
+
+When working in any session, Claude Code should automatically save important context using `cmem add`. Save:
+
+- **Decisions** — Any architecture, library, or design choice made during the session
+- **Learnings** — Anything discovered about the codebase, a bug, or a tool
+- **Solutions** — Any error that was debugged and fixed
+- **Patterns** — Reusable approaches or conventions established
+
+Use `--scope=global` for knowledge that applies across projects. Use `--scope=project` for project-specific context. Always include relevant `--tags`.
+
+Example: after fixing a bug, run:
+```bash
+node src/cli.js add --type=solution --title="Fix CORS in Express" --content="Must add cors() middleware before routes" --tags=express,cors --scope=global
+```
+
 ## Conventions
 
 - No external dependencies — keep it zero-dep Node.js
