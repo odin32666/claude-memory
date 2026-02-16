@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Claude Memory (`cmem`) — a persistent knowledge base and memory system for Claude Code. Stores decisions, learnings, errors, solutions, and patterns as JSON files so context carries across sessions. Supports cross-device sync via git.
+Claude Memory (`cmem`) - a persistent knowledge base and memory system for Claude Code. Stores decisions, learnings, errors, solutions, and patterns as JSON files so context carries across sessions. Supports cross-device sync via git.
 
 ## Tech Stack
 
@@ -12,15 +12,15 @@ Claude Memory (`cmem`) — a persistent knowledge base and memory system for Cla
 
 ## Project Structure
 
-- `src/cli.js` — CLI interface and command routing
-- `src/index.js` — Main ClaudeMemory class and public API
-- `src/memory-manager.js` — CRUD operations for memory entries
-- `src/search.js` — Search/filter logic
-- `src/extractor.js` — Auto-extracts insights from text
-- `src/conversation.js` — Conversation tracking
-- `src/sync.js` — Cross-device sync via git (push/pull/auto-sync)
-- `src/utils/storage.js` — File I/O and JSON persistence
-- `src/utils/schemas.js` — Entry type schemas and validation
+- `src/cli.js` - CLI interface and command routing
+- `src/index.js` - Main ClaudeMemory class and public API
+- `src/memory-manager.js` - CRUD operations for memory entries
+- `src/search.js` - Search/filter logic
+- `src/extractor.js` - Auto-extracts insights from text
+- `src/conversation.js` - Conversation tracking
+- `src/sync.js` - Cross-device sync via git (push/pull/auto-sync)
+- `src/utils/storage.js` - File I/O and JSON persistence
+- `src/utils/schemas.js` - Entry type schemas and validation
 
 ## Key Commands
 
@@ -70,10 +70,10 @@ Memories are stored in `~/.claude/memory/` with `global/` and `projects/<hash>/`
 
 When working in any session, Claude Code should automatically save important context using `cmem add`. Save:
 
-- **Decisions** — Any architecture, library, or design choice made during the session
-- **Learnings** — Anything discovered about the codebase, a bug, or a tool
-- **Solutions** — Any error that was debugged and fixed
-- **Patterns** — Reusable approaches or conventions established
+- **Decisions** - Any architecture, library, or design choice made during the session
+- **Learnings** - Anything discovered about the codebase, a bug, or a tool
+- **Solutions** - Any error that was debugged and fixed
+- **Patterns** - Reusable approaches or conventions established
 
 Use `--scope=global` for knowledge that applies across projects. Use `--scope=project` for project-specific context. Always include relevant `--tags`.
 
@@ -84,7 +84,7 @@ node src/cli.js add --type=solution --title="Fix CORS in Express" --content="Mus
 
 ## Conventions
 
-- No external dependencies — keep it zero-dep Node.js
+- No external dependencies - keep it zero-dep Node.js
 - Entry types: decision, learning, error, solution, pattern, context
 - All entries stored as JSON with timestamps, tags, and metadata
-- Sync uses git — all devices point to the same private remote repo
+- Sync uses git - all devices point to the same private remote repo

@@ -124,7 +124,7 @@ cmem sync init https://github.com/YOU/my-claude-memory.git --device=iPhone
 ### Usage
 
 ```bash
-# Full sync (pull remote + push local) — the default
+# Full sync (pull remote + push local) - the default
 cmem sync
 
 # Push only your local changes
@@ -148,7 +148,7 @@ cmem sync device "Work-Laptop"
 
 If your phone only has the Claude.ai app (no terminal), you can still access all memories:
 
-1. **On your computer**, run `cmem sync` — this pushes a `CONTEXT.md` file to your sync repo
+1. **On your computer**, run `cmem sync` - this pushes a `CONTEXT.md` file to your sync repo
 2. **On your phone**, open your GitHub repo and view `CONTEXT.md`
 3. **Copy-paste** the contents into your Claude.ai conversation
 

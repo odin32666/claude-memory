@@ -3,6 +3,7 @@
 const MemoryManager = require('./memory-manager');
 const SearchEngine = require('./search');
 const SyncManager = require('./sync');
+const LangfuseClient = require('./langfuse');
 const { ENTRY_TYPES, SCOPES } = require('./utils/schemas');
 const readline = require('readline');
 
@@ -385,22 +386,18 @@ function cmdInit() {
 function cmdBriefing() {
   const sync = new SyncManager();
   const entries = sync._getAllEntries();
-  const MAX_ENTRIES = 50;
-  const MAX_CONTENT_LEN = 200;
 
   if (entries.length === 0) {
     console.log(colorize('No memories stored yet. Use "cmem add" to create entries.', 'yellow'));
     return;
   }
 
-  const capped = entries.slice(0, MAX_ENTRIES);
-
   // Output clean markdown (no ANSI colors) so it can be copy-pasted
   let md = `# Claude Memory Briefing\n\n`;
   md += `> ${entries.length} memories | Paste into any Claude conversation.\n\n---\n\n`;
 
   const byType = {};
-  for (const entry of capped) {
+  for (const entry of entries) {
     const type = entry.type || 'other';
     if (!byType[type]) byType[type] = [];
     byType[type].push(entry);
@@ -417,16 +414,10 @@ function cmdBriefing() {
 
     md += `## ${label}\n\n`;
     for (const entry of items) {
-      const content = (entry.content || '').replace(/\n/g, ' ').slice(0, MAX_CONTENT_LEN);
-      const ellipsis = (entry.content || '').length > MAX_CONTENT_LEN ? '...' : '';
       const tags = entry.tags && entry.tags.length > 0 ? ` [${entry.tags.join(',')}]` : '';
-      md += `- **${entry.title}**${tags}: ${content}${ellipsis}\n`;
+      md += `- **${entry.title}**${tags}: ${entry.content || ''}\n`;
     }
     md += `\n`;
-  }
-
-  if (entries.length > MAX_ENTRIES) {
-    md += `\n*${entries.length - MAX_ENTRIES} older entries omitted.*\n`;
   }
 
   console.log(md);
@@ -578,6 +569,102 @@ ${colorize('Setup (run on each device):', 'cyan')}
 `);
 }
 
+async function cmdLangfuse(args) {
+  const subcommand = args[0];
+  const lf = new LangfuseClient();
+
+  switch (subcommand) {
+    case 'init': {
+      const publicKey = args[1];
+      const secretKey = args[2];
+      const baseUrl = args[3] || 'https://cloud.langfuse.com';
+
+      if (!publicKey || !secretKey) {
+        console.log(colorize('Usage: cmem langfuse init <public-key> <secret-key> [base-url]', 'yellow'));
+        return;
+      }
+
+      lf.init(publicKey, secretKey, baseUrl);
+      console.log(colorize('Testing connection...', 'cyan'));
+
+      const test = await lf.testConnection();
+      if (test.success) {
+        console.log(colorize('Langfuse connected successfully!', 'green'));
+      } else {
+        console.log(colorize(`Connected (status: ${test.status}). Keys saved.`, 'green'));
+      }
+
+      console.log(`  ${colorize('Base URL:', 'dim')} ${baseUrl}`);
+      console.log(`  ${colorize('Public key:', 'dim')} ${publicKey.slice(0, 12)}...`);
+      break;
+    }
+
+    case 'status': {
+      const status = lf.status();
+      console.log(colorize('\n=== Langfuse Status ===\n', 'bright'));
+      if (!status.enabled) {
+        console.log(colorize(status.message, 'yellow'));
+      } else {
+        console.log(`  ${colorize('Enabled:', 'dim')} yes`);
+        console.log(`  ${colorize('Base URL:', 'dim')} ${status.baseUrl}`);
+        console.log(`  ${colorize('Public key:', 'dim')} ${status.publicKey}`);
+      }
+      break;
+    }
+
+    case 'test': {
+      if (!lf.isEnabled()) {
+        console.log(colorize('Langfuse not configured. Run: cmem langfuse init <public-key> <secret-key>', 'yellow'));
+        return;
+      }
+      console.log(colorize('Testing Langfuse connection...', 'cyan'));
+      const test = await lf.testConnection();
+      if (test.success) {
+        console.log(colorize('Connection successful!', 'green'));
+      } else {
+        console.log(colorize(`Connection issue: ${test.error || 'status ' + test.status}`, 'red'));
+      }
+      break;
+    }
+
+    case 'feedback': {
+      if (!lf.isEnabled()) {
+        console.log(colorize('Langfuse not configured. Run: cmem langfuse init <public-key> <secret-key>', 'yellow'));
+        return;
+      }
+      const name = args[1] || 'manual-feedback';
+      const score = args[2] ? parseFloat(args[2]) : null;
+      const comment = args.slice(3).join(' ') || '';
+
+      if (score !== null) {
+        const result = await lf.submitFeedback({
+          name,
+          scores: { [name]: { value: score, comment } },
+          details: comment
+        });
+        if (result.success) {
+          console.log(colorize(`Feedback submitted (trace: ${result.traceId.slice(0, 8)})`, 'green'));
+        } else {
+          console.log(colorize(`Failed: ${result.error}`, 'red'));
+        }
+      } else {
+        console.log(colorize('Usage: cmem langfuse feedback <name> <score> [comment]', 'yellow'));
+        console.log('Example: cmem langfuse feedback search-quality 0.8 "Results are relevant"');
+      }
+      break;
+    }
+
+    default: {
+      console.log(`${colorize('Langfuse Commands:', 'cyan')}
+  langfuse init <pk> <sk> [url]   Configure Langfuse API keys
+  langfuse status                 Show Langfuse configuration
+  langfuse test                   Test connection
+  langfuse feedback <n> <s> [c]   Submit feedback score
+`);
+    }
+  }
+}
+
 function cmdHelp() {
   console.log(`
 ${colorize('Claude Memory - Persistent Knowledge Base', 'bright')}
@@ -595,6 +682,7 @@ ${colorize('Commands:', 'cyan')}
   init        Initialize memory structure
   sync        Sync memories across devices via git
   briefing    Print all memories as markdown (for copy-paste to Claude.ai)
+  langfuse    Langfuse observability integration
   help        Show this help message
 
 ${colorize('Add command options:', 'cyan')}
@@ -620,6 +708,12 @@ ${colorize('Sync commands:', 'cyan')}
   sync status                  Show sync status
   sync auto on|off             Enable/disable auto-sync
   sync device <name>           Set this device's name
+
+${colorize('Langfuse commands:', 'cyan')}
+  langfuse init <pk> <sk>      Configure Langfuse keys
+  langfuse status              Show config status
+  langfuse test                Test connection
+  langfuse feedback <n> <s>    Submit a feedback score
 
 ${colorize('Examples:', 'cyan')}
   claude-memory add -i
@@ -669,6 +763,9 @@ async function main() {
       break;
     case 'briefing':
       cmdBriefing();
+      break;
+    case 'langfuse':
+      await cmdLangfuse(commandArgs);
       break;
     case 'help':
     case '--help':

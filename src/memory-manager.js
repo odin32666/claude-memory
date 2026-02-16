@@ -12,6 +12,7 @@ const {
 } = require('./utils/storage');
 const { ENTRY_TYPES, SCOPES, createEntry, validateEntry } = require('./utils/schemas');
 const SyncManager = require('./sync');
+const LangfuseClient = require('./langfuse');
 
 class MemoryManager {
   constructor(projectPath = null) {
@@ -103,6 +104,14 @@ class MemoryManager {
       sync.autoSyncIfEnabled();
     } catch (e) {
       // Sync failure should not block adding entries
+    }
+
+    // Track in Langfuse if enabled
+    try {
+      const lf = new LangfuseClient();
+      lf.trackOperation('add', { type, title, scope, tags });
+    } catch (e) {
+      // Langfuse failure should not block adding entries
     }
 
     return { success: true, entry };

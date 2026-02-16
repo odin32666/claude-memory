@@ -13,6 +13,7 @@ const SearchEngine = require('./search');
 const ConversationTracker = require('./conversation');
 const Extractor = require('./extractor');
 const SyncManager = require('./sync');
+const LangfuseClient = require('./langfuse');
 const { ENTRY_TYPES, SCOPES } = require('./utils/schemas');
 
 /**
@@ -210,6 +211,7 @@ module.exports = {
   ConversationTracker,
   Extractor,
   SyncManager,
+  LangfuseClient,
   ENTRY_TYPES,
   SCOPES
 };

@@ -34,7 +34,7 @@ class SyncManager {
 
   /**
    * Run a git command safely using execFileSync (prevents shell injection).
-   * All arguments are passed as an array — never interpolated into a shell string.
+   * All arguments are passed as an array - never interpolated into a shell string.
    * @param {string[]} args - Array of git arguments
    * @param {object} options - Options (silent: boolean)
    */
@@ -75,7 +75,7 @@ class SyncManager {
     const isRepo = this._git(['rev-parse', '--is-inside-work-tree'], { silent: true });
 
     if (isRepo.success) {
-      // Already a repo — update remote
+      // Already a repo - update remote
       this._git(['remote', 'remove', 'origin'], { silent: true });
       const addRemote = this._git(['remote', 'add', 'origin', repoUrl]);
       if (!addRemote.success) {
@@ -86,7 +86,7 @@ class SyncManager {
       this._git(['fetch', 'origin', branch], { silent: true });
       const remoteBranch = this._git(['rev-parse', '--verify', `origin/${branch}`], { silent: true });
       if (remoteBranch.success) {
-        // Remote has content — merge it in
+        // Remote has content - merge it in
         this._git(['merge', `origin/${branch}`, '--allow-unrelated-histories', '-m', 'Sync: merge remote memories'], { silent: true });
       }
     } else {
@@ -153,7 +153,7 @@ class SyncManager {
     // Check if there are changes to commit
     const status = this._git(['status', '--porcelain'], { silent: true });
     if (!status.output) {
-      return { success: true, message: 'Already up to date — no local changes to push' };
+      return { success: true, message: 'Already up to date - no local changes to push' };
     }
 
     // Commit with device name and timestamp
@@ -243,7 +243,7 @@ class SyncManager {
 
     return {
       success: true,
-      message: 'Sync complete — pulled remote changes and pushed local updates',
+      message: 'Sync complete - pulled remote changes and pushed local updates',
       lastSync: this.config.lastSync
     };
   }
@@ -310,15 +310,13 @@ class SyncManager {
   }
 
   /**
-   * Generate CONTEXT.md — token-optimized, portable memory file.
-   * Lives in the sync repo so phone/web users can open it on GitHub
+   * Generate CONTEXT.md - portable memory file for phone/web users.
+   * Lives in the sync repo so users can open it on GitHub
    * and paste it into a Claude.ai conversation.
    */
   _generateContextFile() {
     const entries = this._getAllEntries();
     const now = new Date().toISOString();
-    const MAX_ENTRIES = 50;
-    const MAX_CONTENT_LEN = 200;
 
     let md = `# Claude Memory Context\n\n`;
     md += `> ${entries.length} memories | Updated ${new Date(now).toLocaleDateString()}\n`;
@@ -330,12 +328,9 @@ class SyncManager {
       return;
     }
 
-    // Take most recent entries, capped for token efficiency
-    const capped = entries.slice(0, MAX_ENTRIES);
-
     // Group by type
     const byType = {};
-    for (const entry of capped) {
+    for (const entry of entries) {
       const type = entry.type || 'other';
       if (!byType[type]) byType[type] = [];
       byType[type].push(entry);
@@ -356,10 +351,8 @@ class SyncManager {
 
       md += `## ${label}\n\n`;
       for (const entry of items) {
-        const content = (entry.content || '').replace(/\n/g, ' ').slice(0, MAX_CONTENT_LEN);
-        const ellipsis = (entry.content || '').length > MAX_CONTENT_LEN ? '...' : '';
         const tags = entry.tags && entry.tags.length > 0 ? ` [${entry.tags.join(',')}]` : '';
-        md += `- **${entry.title}**${tags}: ${content}${ellipsis}\n`;
+        md += `- **${entry.title}**${tags}: ${entry.content || ''}\n`;
       }
       md += `\n`;
     }
@@ -371,15 +364,9 @@ class SyncManager {
 
       md += `## ${type.charAt(0).toUpperCase() + type.slice(1)}\n\n`;
       for (const entry of items) {
-        const content = (entry.content || '').replace(/\n/g, ' ').slice(0, MAX_CONTENT_LEN);
-        const ellipsis = (entry.content || '').length > MAX_CONTENT_LEN ? '...' : '';
-        md += `- **${entry.title}**: ${content}${ellipsis}\n`;
+        md += `- **${entry.title}**: ${entry.content || ''}\n`;
       }
       md += `\n`;
-    }
-
-    if (entries.length > MAX_ENTRIES) {
-      md += `\n*${entries.length - MAX_ENTRIES} older entries omitted. Run \`cmem briefing\` for full list.*\n`;
     }
 
     fs.writeFileSync(path.join(MEMORY_DIR, 'CONTEXT.md'), md, 'utf-8');
@@ -619,7 +606,7 @@ class SyncManager {
   }
 
   /**
-   * Synchronous sleep using spawnSync (safe — no shell interpolation)
+   * Synchronous sleep using spawnSync (safe - no shell interpolation)
    */
   _sleep(ms) {
     spawnSync('sleep', [String(ms / 1000)], { stdio: 'ignore' });
